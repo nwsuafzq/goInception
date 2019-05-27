@@ -31,6 +31,7 @@ check_autoincrement_init_value   |  false    |   true,false     |     当建表�
 check_autoincrement_name   |  false    |   true,false     |   建表时，如果指定的自增列的名字不为ID，则报错，说明是有意义的，给提示
 check_column_comment   |  false    |   true,false     |   建表时，列没有注释时报错
 check_column_default_value   |  false    |   true,false     |     检查在建表、修改列、新增列时，新的列属性是不是要有默认值
+check_column_type_change `v0.7.3` |  true    |   true,false     |  检查字段类型变更
 check_dml_limit   |  false    |   true,false     |    在DML语句中使用了LIMIT时，是不是要报错
 check_dml_orderby   |  false    |   true,false     |  在DML语句中使用了Order By时，是不是要报错
 check_dml_where   |  false    |   true,false     |    在DML语句中没有WHERE条件时，是不是要报错
@@ -50,14 +51,17 @@ enable_enum_set_bit   |  false    |   true,false     |    是不是支持enum,se
 enable_fingerprint `v0.6.2`   |  false    |   true,false     |    sql指纹功能。dml语句相似时，可以根据相同的指纹ID复用explain结果，以减少远端数据库explain操作，并提高审核速度
 enable_foreign_key   |  false    |   true,false     |     是不是支持外键
 enable_identifer_keyword   |  false    |   true,false     |   检查在SQL语句中，是不是有标识符被写成MySQL的关键字，默认值为报警。
+enable_json_type  `v0.7.2` |  false    |   true,false     |   设置是否允许json类型字段，包括建表、修改列、新增列操作
 enable_not_innodb   |  false    |   true,false     |  建表指定的存储引擎不为Innodb，不报错
 enable_nullable   |  false    |   true,false     |    创建或者新增列时如果列为NULL，是不是报错
+enable_null_index_name `v0.7.1`|  false    |   true,false     |    创建索引时是否允许空索引名
 enable_orderby_rand   |  false    |   true,false     |    order by rand时是不是报错
 enable_partition_table   |  false    |   true,false     |     是不是支持分区表
 enable_pk_columns_only_int  |  false    |   true,false     |     是否强制主键列必须是int
 enable_select_star   |  false    |   true,false     |     Select*时是不是要报错
 enable_set_charset   |  false    |   true,false     |     是否允许指定表和数据库的字符集
 enable_set_collation `v0.7` |  false    |   true,false     |     是否允许指定表和数据库的排序规则
+general_log `v0.8.1` |  false    |   true,false     |     是否记录全量日志
 lang `v0.5.1` | en-US             | en-US,zh-CN | 返回的信息使用语言,可选值`en-US`,`zh-CN`
 max_char_length                | 0              | int | 最大char长度,当超出时警告转换为varchar类型
 max_insert_rows   `v0.6.3`              | 0           | int  | 设置insert values允许的最大行数.0为不限制

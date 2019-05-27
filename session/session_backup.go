@@ -57,10 +57,11 @@ func (s *session) runBackup(ctx context.Context) {
 		if s.checkSqlIsDML(record) || s.checkSqlIsDDL(record) {
 			s.myRecord = record
 
-			errno := s.mysqlCreateBackupTable(record)
-			if errno == 2 {
-				break
-			}
+			s.mysqlCreateBackupTable(record)
+			// errno := s.mysqlCreateBackupTable(record)
+			// if errno == 2 {
+			// 	break
+			// }
 			if record.TableInfo == nil {
 				s.AppendErrorNo(ErrNotFoundTableInfo)
 			} else {
@@ -112,6 +113,7 @@ func (s *session) flushBackupRecord(dbname string, record *Record) {
 		if err != nil {
 			log.Error(err)
 			if myErr, ok := err.(*mysqlDriver.MySQLError); ok {
+				s.recordSets.MaxLevel = 2
 				record.StageStatus = StatusBackupFail
 				record.AppendErrorMessage(myErr.Message)
 			}

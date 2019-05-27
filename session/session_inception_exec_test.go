@@ -42,6 +42,10 @@ type testSessionIncExecSuite struct {
 	store     kv.Storage
 	dom       *domain.Domain
 	tk        *testkit.TestKit
+
+	sqlMode string
+	// 时间戳类型是否需要明确指定默认值
+	explicitDefaultsForTimestamp bool
 }
 
 func (s *testSessionIncExecSuite) SetUpSuite(c *C) {
@@ -80,6 +84,9 @@ func (s *testSessionIncExecSuite) SetUpSuite(c *C) {
 
 	config.GetGlobalConfig().Inc.Lang = "en-US"
 	session.SetLanguage("en-US")
+
+	fmt.Println("ExplicitDefaultsForTimestamp: ", s.getExplicitDefaultsForTimestamp(c))
+	fmt.Println("SQLMode: ", s.getSQLMode(c))
 }
 
 func (s *testSessionIncExecSuite) TearDownSuite(c *C) {
@@ -209,7 +216,7 @@ func (s *testSessionIncExecSuite) TestCreateTable(c *C) {
 	config.GetGlobalConfig().Inc.CheckColumnComment = false
 	config.GetGlobalConfig().Inc.CheckTableComment = false
 
-	sql = "create table nullkeytest1(c1 int, c2 int, c3 int, primary key(c1), key a(c2));"
+	sql = "drop table if exists nullkeytest1;create table nullkeytest1(c1 int, c2 int, c3 int, primary key(c1), key ix_1(c2));"
 	s.testErrorCode(c, sql)
 
 	// 表存在
@@ -343,7 +350,12 @@ func (s *testSessionIncExecSuite) TestCreateTable(c *C) {
 		session.NewErrf("Incorrect table definition; there can be only one TIMESTAMP column with CURRENT_TIMESTAMP in DEFAULT or ON UPDATE clause"))
 
 	sql = "drop table if exists t1;create table t1(id int primary key,t1 timestamp default CURRENT_TIMESTAMP,t2 timestamp ON UPDATE CURRENT_TIMESTAMP);"
-	s.testErrorCode(c, sql)
+	if s.getExplicitDefaultsForTimestamp(c) || !(strings.Contains(s.getSQLMode(c), "TRADITIONAL") ||
+		(strings.Contains(s.getSQLMode(c), "STRICT_") && strings.Contains(s.getSQLMode(c), "NO_ZERO_DATE"))) {
+		s.testErrorCode(c, sql)
+	} else {
+		s.testErrorCode(c, sql, session.NewErr(session.ER_INVALID_DEFAULT, "t2"))
+	}
 
 	sql = "drop table if exists t1;create table t1(id int primary key,t1 timestamp default CURRENT_TIMESTAMP,t2 date default CURRENT_TIMESTAMP);"
 	s.testErrorCode(c, sql,
@@ -439,7 +451,7 @@ func (s *testSessionIncExecSuite) TestCreateTable(c *C) {
 	sql = "drop table if exists t1;create table t1(pt text ,primary key (pt));"
 	s.testErrorCode(c, sql,
 		session.NewErr(session.ER_USE_TEXT_OR_BLOB, "pt"),
-		session.NewErr(session.ER_TOO_LONG_KEY, "", indexMaxLength))
+		session.NewErr(session.ER_TOO_LONG_KEY, "PRIMARY", indexMaxLength))
 
 	config.GetGlobalConfig().Inc.EnableBlobType = true
 	// 索引长度
@@ -498,6 +510,15 @@ crtTime datetime not null DEFAULT CURRENT_TIMESTAMP comment 'test',
 uptTime datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment 'test',
 primary key(id)) comment 'test';`
 	s.testErrorCode(c, sql)
+
+	res = makeExecSQL(tk, "drop table if exists t1;create table t1(c1 int);")
+	row = res.Rows()[int(tk.Se.AffectedRows())-1]
+	c.Assert(row[2], Equals, "0")
+
+	// 测试表名大小写
+	sql = "insert into T1 values(1);"
+	s.testErrorCode(c, sql)
+
 }
 
 func (s *testSessionIncExecSuite) TestDropTable(c *C) {
@@ -676,6 +697,10 @@ func (s *testSessionIncExecSuite) TestAlterTableAddColumn(c *C) {
 
 	sql = "drop table if exists t1;create table t1 (id int primary key);alter table t1 add column (c1 int,c2 varchar(20));"
 	s.testErrorCode(c, sql)
+
+	// 指定特殊选项
+	sql = "drop table if exists t1;create table t1 (id int primary key);alter table t1 add column c1 int,ALGORITHM=INPLACE, LOCK=NONE;"
+	s.testErrorCode(c, sql)
 }
 
 func (s *testSessionIncExecSuite) TestAlterTableAlterColumn(c *C) {
@@ -822,7 +847,12 @@ func (s *testSessionIncExecSuite) TestAlterTableModifyColumn(c *C) {
 	c.Assert(row[2], Equals, "0")
 
 	sql = "drop table if exists t1;create table t1(id int primary key,t1 timestamp default CURRENT_TIMESTAMP,t2 timestamp ON UPDATE CURRENT_TIMESTAMP);"
-	s.testErrorCode(c, sql)
+	if s.getExplicitDefaultsForTimestamp(c) || !(strings.Contains(s.getSQLMode(c), "TRADITIONAL") ||
+		(strings.Contains(s.getSQLMode(c), "STRICT_") && strings.Contains(s.getSQLMode(c), "NO_ZERO_DATE"))) {
+		s.testErrorCode(c, sql)
+	} else {
+		s.testErrorCode(c, sql, session.NewErr(session.ER_INVALID_DEFAULT, "t2"))
+	}
 
 	// modify column
 	sql = "drop table if exists t1;create table t1(id int primary key,c1 int);alter table t1 modify testx.t1.c1 int"
@@ -1395,4 +1425,63 @@ func (s *testSessionIncExecSuite) getDBVersion(c *C) int {
 	}
 
 	return 50700
+}
+
+func (s *testSessionIncExecSuite) getSQLMode(c *C) string {
+	if testing.Short() {
+		c.Skip("skipping test; in TRAVIS mode")
+	}
+
+	if s.sqlMode != "" {
+		return s.sqlMode
+	}
+
+	if s.tk == nil {
+		s.tk = testkit.NewTestKitWithInit(c, s.store)
+	}
+
+	sql := "show variables like 'sql_mode'"
+
+	res := makeExecSQL(s.tk, sql)
+	c.Assert(int(s.tk.Se.AffectedRows()), Equals, 2)
+
+	row := res.Rows()[int(s.tk.Se.AffectedRows())-1]
+	versionStr := row[5].(string)
+
+	versionStr = strings.SplitN(versionStr, "|", 2)[1]
+	value := strings.Replace(versionStr, "'", "", -1)
+	value = strings.TrimSpace(value)
+
+	s.sqlMode = value
+	return value
+}
+
+func (s *testSessionIncExecSuite) getExplicitDefaultsForTimestamp(c *C) bool {
+	if testing.Short() {
+		c.Skip("skipping test; in TRAVIS mode")
+	}
+
+	if s.sqlMode != "" {
+		return s.explicitDefaultsForTimestamp
+	}
+
+	if s.tk == nil {
+		s.tk = testkit.NewTestKitWithInit(c, s.store)
+	}
+
+	sql := "show variables where Variable_name='explicit_defaults_for_timestamp';"
+
+	res := makeExecSQL(s.tk, sql)
+	c.Assert(int(s.tk.Se.AffectedRows()), Equals, 2)
+
+	row := res.Rows()[int(s.tk.Se.AffectedRows())-1]
+	versionStr := row[5].(string)
+
+	versionStr = strings.SplitN(versionStr, "|", 2)[1]
+	value := strings.Replace(versionStr, "'", "", -1)
+	value = strings.TrimSpace(value)
+	if value == "ON" {
+		s.explicitDefaultsForTimestamp = true
+	}
+	return s.explicitDefaultsForTimestamp
 }

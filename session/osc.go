@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build !windows,!nacl,!plan9
+
 package session
 
 import (
@@ -34,6 +36,7 @@ import (
 	// "github.com/hanchuanchuan/goInception/server"
 	"github.com/hanchuanchuan/goInception/util"
 	"github.com/hanchuanchuan/goInception/util/auth"
+
 	// "github.com/pingcap/errors"
 
 	"github.com/github/gh-ost/go/base"
@@ -96,7 +99,7 @@ func (s *session) mysqlExecuteAlterTableOsc(r *Record) {
 	buf := bytes.NewBufferString("pt-online-schema-change")
 
 	buf.WriteString(" --alter \"")
-	buf.WriteString(s.getAlterTablePostPart(r.Sql))
+	buf.WriteString(s.getAlterTablePostPart(r.Sql, true))
 
 	if s.hasError() {
 		return
@@ -164,11 +167,11 @@ func (s *session) mysqlExecuteAlterTableOsc(r *Record) {
 	buf.WriteString(" --progress ")
 	buf.WriteString("percentage,1 ")
 
-	buf.WriteString(" --user=")
+	buf.WriteString(" --user=\"")
 	buf.WriteString(s.opt.user)
-	buf.WriteString(" --password=")
+	buf.WriteString("\" --password=\"")
 	buf.WriteString(s.opt.password)
-	buf.WriteString(" --host=")
+	buf.WriteString("\" --host=")
 	buf.WriteString(s.opt.host)
 	buf.WriteString(" --port=")
 	buf.WriteString(strconv.Itoa(s.opt.port))
@@ -210,7 +213,7 @@ func (s *session) mysqlExecuteAlterTableGhost(r *Record) {
 	// flag.StringVar(&migrationContext.DatabaseName, "database", "", "database name (mandatory)")
 	migrationContext.OriginalTableName = r.TableInfo.Name
 
-	migrationContext.AlterStatement = s.getAlterTablePostPart(r.Sql)
+	migrationContext.AlterStatement = s.getAlterTablePostPart(r.Sql, false)
 
 	// flag.StringVar(&migrationContext.OriginalTableName, "table", "", "table name (mandatory)")
 	// flag.StringVar(&migrationContext.AlterStatement, "alter", "", "alter statement (mandatory)")
@@ -684,7 +687,7 @@ func (s *session) mysqlAnalyzeGhostOutput(out string, p *util.OscProcessInfo) {
 
 }
 
-func (s *session) getAlterTablePostPart(sql string) string {
+func (s *session) getAlterTablePostPart(sql string, isPtOSC bool) string {
 
 	var buf []string
 	for _, line := range strings.Split(sql, "\n") {
@@ -711,18 +714,25 @@ func (s *session) getAlterTablePostPart(sql string) string {
 
 	supportOper := []string{
 		"add",
-		"modify",
-		"change",
-		"drop",
-		"alter",
 		"algorithm",
+		"alter",
+		"auto_increment",
+		"avg_row_length",
+		"change",
 		"character",
+		"checksum",
+		"comment",
+		"convert",
+		"collate",
 		"default",
 		"disable",
-		"enable",
 		"discard",
-		"import",
+		"drop",
+		"enable",
+		"engine",
 		"force",
+		"import",
+		"modify",
 	}
 
 	support := false
@@ -739,5 +749,12 @@ func (s *session) getAlterTablePostPart(sql string) string {
 
 	sql = strings.Join(parts[3:], " ")
 
-	return strings.Replace(sql, "\"", "\\\"", -1)
+	sql = strings.Replace(sql, "\"", "\\\"", -1)
+
+	// gh-ost不需要处理`,pt-osc需要处理
+	if isPtOSC {
+		sql = strings.Replace(sql, "`", "\\`", -1)
+	}
+
+	return sql
 }

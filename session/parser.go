@@ -9,6 +9,7 @@ import (
 	"github.com/hanchuanchuan/go-mysql/replication"
 	"github.com/juju/errors"
 	log "github.com/sirupsen/logrus"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,11 +79,13 @@ func (s *session) GetNextBackupRecord() *Record {
 				s.ch <- &ChanData{sqlStr: r.DDLRollback, opid: r.OPID,
 					table: s.lastBackupTable, record: r}
 
-				r.StageStatus = StatusBackupOK
+				if r.StageStatus != StatusExecFail {
+					r.StageStatus = StatusBackupOK
+				}
 
 				continue
 
-			} else if r.AffectedRows > 0 && s.checkSqlIsDML(r) {
+			} else if (r.AffectedRows > 0 || r.StageStatus == StatusExecFail) && s.checkSqlIsDML(r) {
 
 				// if s.opt.middlewareExtend != "" {
 				// 	continue
@@ -99,7 +102,10 @@ func (s *session) GetNextBackupRecord() *Record {
 				}
 
 				// 先置默认值为备份失败,在备份完成后置为成功
-				r.StageStatus = StatusBackupFail
+				// if r.AffectedRows > 0 {
+				if r.StageStatus != StatusExecFail {
+					r.StageStatus = StatusBackupFail
+				}
 				clearDeleteColumns(r.TableInfo)
 
 				return r
@@ -291,7 +297,14 @@ func (s *session) Parser(ctx context.Context) {
 	ENDCHECK:
 		// 如果操作已超过binlog范围,切换到下一日志
 		if currentPosition.Compare(stopPosition) > -1 {
-			record.StageStatus = StatusBackupOK
+			// sql被kill后,如果备份时可以检测到行,则认为执行成功
+			// 工单只有执行成功,才允许标记为备份成功
+			// if (record.StageStatus == StatusExecFail && record.AffectedRows > 0) ||
+			// 	record.StageStatus == StatusExecOK || record.StageStatus == StatusBackupFail {
+			if record.AffectedRows > 0 {
+				record.StageStatus = StatusBackupOK
+			}
+
 			record.BackupCostTime = fmt.Sprintf("%.3f", time.Since(startTime).Seconds())
 
 			next := s.GetNextBackupRecord()
@@ -307,10 +320,17 @@ func (s *session) Parser(ctx context.Context) {
 			}
 		}
 
-		// // 进程Killed
-		// if err := checkClose(ctx); err != nil {
-		// 	log.Warn("Killed: ", err)
-		// 	s.AppendErrorMessage("Operation has been killed!")
+		// 如果执行阶段已经kill,则不再检查
+		if !s.killExecute {
+			// 进程Killed
+			if err := checkClose(ctx); err != nil {
+				log.Warn("Killed: ", err)
+				s.AppendErrorMessage("Operation has been killed!")
+				break
+			}
+		}
+
+		// if s.hasErrorBefore() {
 		// 	break
 		// }
 	}
@@ -401,6 +421,12 @@ func (s *session) checkError(e error) {
 }
 
 func (s *session) write(b []byte, binEvent *replication.BinlogEvent) {
+	// 此处执行状态不确定的记录
+	if s.myRecord.StageStatus == StatusExecFail {
+		log.Info("auto fix record:", s.myRecord.OPID)
+		s.myRecord.AffectedRows += 1
+		s.TotalChangeRows += 1
+	}
 	s.ch <- &ChanData{sql: b, e: binEvent, opid: s.myRecord.OPID,
 		table: s.lastBackupTable, record: s.myRecord}
 }
@@ -431,7 +457,10 @@ func (s *session) generateInsertSql(t *TableInfo, e *replication.RowsEvent,
 	for _, rows := range e.Rows {
 
 		var vv []driver.Value
-		for _, d := range rows {
+		for i, d := range rows {
+			if t.Fields[i].IsUnsigned() {
+				d = processValue(d, GetDataTypeBase(t.Fields[i].Type))
+			}
 			vv = append(vv, d)
 			// if _, ok := d.([]byte); ok {
 			//  log.Info().Msgf("%s:%q\n", t.Fields[j].Field, d)
@@ -473,6 +502,9 @@ func (s *session) generateDeleteSql(t *TableInfo, e *replication.RowsEvent,
 			if t.hasPrimary {
 				_, ok := t.primarys[i]
 				if ok {
+					if t.Fields[i].IsUnsigned() {
+						d = processValue(d, GetDataTypeBase(t.Fields[i].Type))
+					}
 					vv = append(vv, d)
 					if d == nil {
 						columnNames = append(columnNames,
@@ -483,6 +515,9 @@ func (s *session) generateDeleteSql(t *TableInfo, e *replication.RowsEvent,
 					}
 				}
 			} else {
+				if t.Fields[i].IsUnsigned() {
+					d = processValue(d, GetDataTypeBase(t.Fields[i].Type))
+				}
 				vv = append(vv, d)
 
 				if d == nil {
@@ -505,6 +540,56 @@ func (s *session) generateDeleteSql(t *TableInfo, e *replication.RowsEvent,
 	}
 
 	return string(buf), nil
+}
+
+func processValue(value driver.Value, dataType string) driver.Value {
+	if value == nil {
+		return value
+	}
+
+	// log.Info(value)
+	// log.Infof("%T", value)
+
+	switch v := value.(type) {
+	case int8:
+		if v >= 0 {
+			return value
+		}
+		return int64(1<<8 + int64(v))
+	case int16:
+		if v >= 0 {
+			return value
+		}
+		return int64(1<<16 + int64(v))
+	case int32:
+		if v >= 0 {
+			return value
+		}
+		if dataType == "mediumint" {
+			return int64(1<<24 + int64(v))
+		}
+		return int64(1<<32 + int64(v))
+	case int64:
+		if v >= 0 {
+			return value
+		}
+		return math.MaxUint64 - uint64(abs(v)) + 1
+	// case int:
+	// case float32:
+	// case float64:
+
+	default:
+		// log.Error("解析错误")
+		// log.Errorf("%T", v)
+		return value
+	}
+
+	return value
+}
+
+func abs(n int64) int64 {
+	y := n >> 63
+	return (n ^ y) - y
 }
 
 func (s *session) generateUpdateSql(t *TableInfo, e *replication.RowsEvent,
@@ -546,7 +631,10 @@ func (s *session) generateUpdateSql(t *TableInfo, e *replication.RowsEvent,
 
 		if i%2 == 0 {
 			// 旧值
-			for _, d := range rows {
+			for j, d := range rows {
+				if t.Fields[j].IsUnsigned() {
+					d = processValue(d, GetDataTypeBase(t.Fields[j].Type))
+				}
 				newValues = append(newValues, d)
 			}
 		} else {
@@ -557,6 +645,9 @@ func (s *session) generateUpdateSql(t *TableInfo, e *replication.RowsEvent,
 				if t.hasPrimary {
 					_, ok := t.primarys[j]
 					if ok {
+						if t.Fields[j].IsUnsigned() {
+							d = processValue(d, GetDataTypeBase(t.Fields[j].Type))
+						}
 						oldValues = append(oldValues, d)
 
 						if d == nil {
@@ -568,6 +659,9 @@ func (s *session) generateUpdateSql(t *TableInfo, e *replication.RowsEvent,
 						}
 					}
 				} else {
+					if t.Fields[j].IsUnsigned() {
+						d = processValue(d, GetDataTypeBase(t.Fields[j].Type))
+					}
 					oldValues = append(oldValues, d)
 
 					if d == nil {
@@ -638,6 +732,8 @@ func InterpolateParams(query string, args []driver.Value) ([]byte, error) {
 			buf = strconv.AppendInt(buf, int64(v), 10)
 		case int64:
 			buf = strconv.AppendInt(buf, v, 10)
+		case uint64:
+			buf = strconv.AppendUint(buf, uint64(v), 10)
 		case int:
 			buf = strconv.AppendInt(buf, int64(v), 10)
 		case float32:

@@ -190,8 +190,11 @@ const (
 	ErrCharsetNotSupport
 	ErrCollationNotSupport
 	ErrTableCollationNotSupport
-	ER_ERROR_LAST
+	ErrJsonTypeSupport
 	//ER_NULL_NAME_FOR_INDEX
+	ErrMixOfGroupFuncAndFields
+	ErrFieldNotInGroupBy
+	ER_ERROR_LAST
 )
 
 var ErrorsDefault = map[int]string{
@@ -235,8 +238,8 @@ var ErrorsDefault = map[int]string{
 	ER_FOREIGN_KEY:                         "Foreign key is not allowed in table '%s'.",
 	ER_TOO_MANY_KEY_PARTS:                  "Too many key parts in Key '%s' in table '%s' specified, max %d parts allowed.",
 	ER_TOO_LONG_IDENT:                      "Identifier name '%s' is too long.",
-	ER_UDPATE_TOO_MUCH_ROWS:                "Update(%d) more then %d rows.",
-	ER_INSERT_TOO_MUCH_ROWS:                "Insert(%d) more then %d rows.",
+	ER_UDPATE_TOO_MUCH_ROWS:                "Update(%d rows) more then %d rows.",
+	ER_INSERT_TOO_MUCH_ROWS:                "Insert(%d rows) more then %d rows.",
 	ER_WRONG_NAME_FOR_INDEX:                "Incorrect index name '%s' in table '%s'.",
 	ER_TOO_MANY_KEYS:                       "Too many keys specified in table '%s', max %d keys allowed.",
 	ER_NOT_SUPPORTED_KEY_TYPE:              "Not supported key type: '%s'.",
@@ -342,12 +345,16 @@ var ErrorsDefault = map[int]string{
 	ErrNotFoundTableInfo:                   "Skip backup because there is no table structure information.",
 	ErrNotFoundThreadId:                    "MariaDB v%d not supported yet,please confirm that the rollback sql is correct",
 	ErrNotFoundMasterStatus:                "Can't found master binlog position.",
-	ErrNonUniqTable:                        mysql.MySQLErrName[mysql.ErrNonuniqTable],
-	ErrWrongUsage:                          "Incorrect usage of %s and %s",
+	ErrNonUniqTable:                        "Not unique table/alias: '%-.192s'.", // mysql.MySQLErrName[mysql.ErrNonuniqTable],
+	ErrWrongUsage:                          "Incorrect usage of %s and %s.",
 	ErrDataTooLong:                         "Data too long for column '%s' at row %d",
 	ErrCharsetNotSupport:                   "Set charset to one of '%s'.",
 	ErrCollationNotSupport:                 "Set collation to one of '%s'",
+	ErrJsonTypeSupport:                     "Json type not allowed in column '%s'.",
 	ER_ERROR_LAST:                          "TheLastError,ByeBye",
+	ErrMixOfGroupFuncAndFields:             "In aggregated query without GROUP BY, expression #%d of SELECT list contains nonaggregated column '%s'; this is incompatible with sql_mode=only_full_group_by.",
+	ErrFieldNotInGroupBy:                   "Expression #%d of %s is not in GROUP BY clause and contains nonaggregated column '%s' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by.",
+	// ErrMixOfGroupFuncAndFields:             "Mixing of GROUP columns (MIN(),MAX(),COUNT(),...) with no GROUP columns is illegal if there is no GROUP BY clause",
 	//ER_NULL_NAME_FOR_INDEX:                 "Index name cannot be null in table '%s'.",
 }
 
@@ -391,8 +398,8 @@ var ErrorsChinese = map[int]string{
 	ER_FOREIGN_KEY:                      "不允许使用外键(表 '%s').",
 	ER_TOO_MANY_KEY_PARTS:               "索引 '%s'指定了太多的字段(表 '%s'), 最多允许 %d 个字段.",
 	ER_TOO_LONG_IDENT:                   "名称 '%s' 过长.",
-	ER_UDPATE_TOO_MUCH_ROWS:             "一次更新(%d)超过 %d 行.",
-	ER_INSERT_TOO_MUCH_ROWS:             "一次新增(%d)超过 %d 行.",
+	ER_UDPATE_TOO_MUCH_ROWS:             "预计一次更新(%d行)超过 %d 行.",
+	ER_INSERT_TOO_MUCH_ROWS:             "一次新增(%d行)超过 %d 行.",
 	ER_WRONG_NAME_FOR_INDEX:             "索引 '%s' 名称不正确(表 '%s').",
 	ER_TOO_MANY_KEYS:                    "表 '%s' 指定了太多索引, 最多允许 %d 个.",
 	ER_NOT_SUPPORTED_KEY_TYPE:           "不允许的键类型: '%s'.",
@@ -503,6 +510,7 @@ var ErrorsChinese = map[int]string{
 	ErrCharsetNotSupport:                   "允许的字符集: '%s'.",
 	ErrCollationNotSupport:                 "允许的排序规则: '%s'.",
 	ErrWrongUsage:                          "%s子句无法使用%s",
+	ErrJsonTypeSupport:                     "不允许使用json类型(列'%s').",
 	//ER_NULL_NAME_FOR_INDEX:                 "在表 '%s' 中, 索引名称不能为空.",
 }
 

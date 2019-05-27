@@ -213,6 +213,15 @@ type session struct {
 
 	// 当前阶段 [Check,Execute,Backup]
 	stage byte
+
+	// 打印语法树
+	printSets *PrintSets
+
+	// 时间戳类型是否需要明确指定默认值
+	explicitDefaultsForTimestamp bool
+
+	// 判断kill操作在哪个阶段,如果是在执行阶段时,则不停止备份
+	killExecute bool
 }
 
 // DDLOwnerChecker returns s.ddlOwnerChecker.
@@ -1548,14 +1557,11 @@ func logStmt(node ast.StmtNode, vars *variable.SessionVars) {
 }
 
 func logQuery(query string, vars *variable.SessionVars) {
-	// log.Info(atomic.LoadUint32(&variable.ProcessGeneralLog))
-	// log.Info(vars.InRestrictedSQL)
-	// if atomic.LoadUint32(&variable.ProcessGeneralLog) != 0 && !vars.InRestrictedSQL {
-	// if !vars.InRestrictedSQL {
-	// 	query = executor.QueryReplacer.Replace(query)
-	// 	// log.Infof("[GENERAL_LOG] con:%d user:%s schema_ver:%d start_ts:%d sql:%s%s",
-	// 	// 	vars.ConnectionID, vars.User, vars.TxnCtx.SchemaVersion, vars.TxnCtx.StartTS, query, vars.GetExecuteArgumentsInfo())
-	// 	log.Infof("[GENERAL_LOG] con:%d user:%s sql:%s%s",
-	// 		vars.ConnectionID, vars.User, query, vars.GetExecuteArgumentsInfo())
-	// }
+	if atomic.LoadUint32(&variable.ProcessGeneralLog) != 0 && !vars.InRestrictedSQL {
+		query = executor.QueryReplacer.Replace(query)
+		// log.Infof("[GENERAL_LOG] con:%d user:%s schema_ver:%d start_ts:%d sql:%s%s",
+		// 	vars.ConnectionID, vars.User, vars.TxnCtx.SchemaVersion, vars.TxnCtx.StartTS, query, vars.GetExecuteArgumentsInfo())
+		log.Infof("[GENERAL_LOG] con:%d user:%s sql:%s%s",
+			vars.ConnectionID, vars.User, query, vars.GetExecuteArgumentsInfo())
+	}
 }

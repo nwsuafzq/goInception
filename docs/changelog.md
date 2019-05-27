@@ -1,6 +1,94 @@
 # goInception 更新日志
 
 
+## [v0.8.2-beta] - 2019-5-27
+
+### Fix
+* fix: 修复binlog解析时对unsigned列溢出值的处理
+* fix: 修复gh-ost执行语句有反引号时报语法错误的bug (#33)
+* fix: 修复kill DDL操作时,返回执行和备份成功的bug,现在会提示执行结果未知了 (#34)
+
+
+## [v0.8.1-beta] - 2019-5-24
+
+### Fix
+* 修复新建表后,使用大小写不一致的表名时返回表不存在bug
+
+### New Features
+* 添加general_log参数,用以记录全量日志
+
+### Update
+* 优化insert select新表的审核规则,现在select新表时也可以审核了
+
+
+## [v0.8-beta] - 2019-5-22
+
+### Fix
+* 修复当开启sql指纹功能时,可能出现把警告误标记为错误的bug
+
+### Update
+* 优化子查询审核规则,递归审核所有子查询
+* 审核group by语法和聚合函数
+
+
+## [v0.7.5-beta] - 2019-5-17
+
+### Fix
+* 修复执行阶段kill逻辑,避免kill后备份也中止
+
+### New Features
+* 添加select语法支持
+* 添加alter table的ALGORITHM,LOCK,FORCE语法支持
+
+### Update
+* 优化update子查询审核
+
+
+## [v0.7.4-beta] - 2019-5-12
+
+### New Features
+* 添加alter table表选项语法支持 (#30)
+* 重新设计kill操作支持,支持远端数据库kill和goInception kill命令 (#10)
+
+
+## [v0.7.3-beta] - 2019-5-10
+
+### Fix
+* 修复在开启备份时,执行错误时偶尔出现的误标记执行/备份成功bug
+
+### New Features
+* 添加`check_column_type_change`参数，设置是否开启字段类型变更审核,默认`开启` (#27)
+
+### Update
+* 实现insert select * 列数审核
+
+
+## [v0.7.2-beta] - 2019-5-7
+
+### New Features
+* 添加`enable_json_type`参数，设置是否允许json类型字段 (#26)
+
+### Update
+* 实现基于系统变量explicit_defaults_for_timestamp的审核规则
+* 优化osc解析,转义密码和alter语句中的特殊字符
+
+
+## [v0.7.1-beta] - 2019-5-4
+
+### Update
+* 优化json类型字段处理逻辑，不再检查其默认值和NOT NULL约束 (#7, #22)
+* 优化must_have_columns参数值解析
+* 优化insert select审核逻辑
+
+### Fix
+* 修复和完善add column(...)语法支持
+* 修复开启osc时,alter语句有多余空格时执行失败的bug
+
+### New Features
+* 添加`enable_null_index_name`参数，允许不指定索引名 (#25)
+* 添加语法树打印功能(beta) (#21)
+
+
 ## [v0.7-beta] - 2019-4-26
 
 ### Update
